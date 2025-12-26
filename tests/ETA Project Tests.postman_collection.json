@@ -1,0 +1,76 @@
+{
+	"info": {
+		"_postman_id": "45f70e0c-8085-4a09-9b8f-f53126b9f6e7",
+		"name": "ETA Project Tests",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "51054421",
+		"_collection_link": "https://minion52-1100720.postman.co/workspace/minion's-Workspace~4f8bde7f-2102-4535-8042-815bf153724c/collection/51054421-45f70e0c-8085-4a09-9b8f-f53126b9f6e7?action=share&source=collection_link&creator=51054421"
+	},
+	"item": [
+		{
+			"name": "Server Check",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://95.174.94.22:8000/",
+					"protocol": "http",
+					"host": [
+						"95",
+						"174",
+						"94",
+						"22"
+					],
+					"port": "8000",
+					"path": [
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Predict Delivery Time (rain+jam)",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"distance_km\": 5.5,\r\n  \"traffic_level\": 3,\r\n  \"courier_type\": \"motorcycle\",\r\n  \"weather\": \"Rainy\",\r\n  \"hour_of_day\": 18\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://95.174.94.22:8000/predict_eta",
+					"protocol": "http",
+					"host": [
+						"95",
+						"174",
+						"94",
+						"22"
+					],
+					"port": "8000",
+					"path": [
+						"predict_eta"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
