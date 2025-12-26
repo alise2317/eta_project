@@ -88,7 +88,7 @@ def predict_eta(request: DeliveryRequest, db: Session = Depends(get_db)):
         ]
 
         prediction = model.predict(features)
-        eta_value = round(prediction, 1)
+        eta_value = float(round(prediction, 1))
 
         # 2. сохраняем в БД
         new_order = Order(
