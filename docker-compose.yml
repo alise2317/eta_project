@@ -1,6 +1,20 @@
 version: '3.8'
 
 services:
+  # API
+  web:
+    build: .
+    container_name: eta_app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      # Строка подключения к базе внутри Docker-сети
+      # 'db' - это имя сервиса базы данных ниже
+      DATABASE_URL: postgresql://user:password@db:5432/eta_db
+
+  # база данных Postgres
   db:
     image: postgres:15
     container_name: eta_postgres
@@ -9,8 +23,6 @@ services:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
       POSTGRES_DB: eta_db
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 

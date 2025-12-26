@@ -1,94 +1,124 @@
 import pandas as pd
 import numpy as np
 from catboost import CatBoostRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
 import os
 
-# --- 1. Генерация данных (Имитация истории) ---
-print("Генерируем данные...")
-data_size = 2000
+# 1. формула харвесина для расчёта расстояния с учётом кривизны Земли
+def haversine_distance(lat1, lon1, lat2, lon2):
+    R = 6371  # радиус Земли в км
+    phi1, phi2 = np.radians(lat1), np.radians(lat2)
+    dphi = np.radians(lat2 - lat1)
+    dlambda = np.radians(lon2 - lon1)
 
-data = {
-    # Случайное расстояние от 0.5 до 25 км
-    'distance_km': np.random.uniform(0.5, 25.0, data_size),
+    a = np.sin(dphi / 2) ** 2 + np.cos(phi1) * np.cos(phi2) * np.sin(dlambda / 2) ** 2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    return R * c
 
-    # Пробки от 1 до 10 баллов
-    'traffic_level': np.random.randint(1, 11, data_size),
+# 2. загрузка и очистка данных
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # корень проекта eta_project/
+csv_path = os.path.join(base_dir, "train.csv")
 
-    # Тип курьера
-    'courier_type': np.random.choice(['foot', 'bike', 'car'], data_size)
-}
+print(f"загружаем данные из {csv_path}...")
 
-df = pd.DataFrame(data)
+try:
+    df = pd.read_csv(csv_path)
+except FileNotFoundError:
+    print("ОШИБКА: Файл train.csv не найден!")
+    exit(1)
 
+# убираем пробелы в названиях колонок (если есть)
+df.columns = df.columns.str.strip()
 
-# Функция для расчета "идеального" времени (Target), чтобы модель могла найти закономерность
-def calculate_target_time(row):
-    # Базовая скорость (мин на км)
-    speed_map = {'car': 2.0, 'bike': 4.0, 'foot': 10.0}
+print(f"Исходный размер: {df.shape}")
 
-    dist = row['distance_km']
-    traffic = row['traffic_level']
-    ctype = row['courier_type']
+# 3. Feature Engineering (создание признаков)
 
-    # Время в пути = (дистанция * мин/км)
-    travel_time = dist * speed_map[ctype]
+# расчет дистанции
+df['Restaurant_latitude'] = df['Restaurant_latitude'].abs()
+df['Restaurant_longitude'] = df['Restaurant_longitude'].abs()
+df['Delivery_location_latitude'] = df['Delivery_location_latitude'].abs()
+df['Delivery_location_longitude'] = df['Delivery_location_longitude'].abs()
 
-    # Влияние пробок (только для авто сильное, для вело слабое, пешим почти нет)
-    traffic_penalty = 0
-    if ctype == 'car':
-        traffic_penalty = traffic * 3.0  # +3 мин за каждый балл пробки
-    elif ctype == 'bike':
-        traffic_penalty = traffic * 0.5
-
-    # Базовое время на "забрать/отдать" заказ (5-10 мин)
-    service_time = 10
-
-    # Итоговое время + небольшой случайный шум (реальность)
-    total_time = travel_time + traffic_penalty + service_time + np.random.normal(0, 3)
-
-    return max(5.0, total_time)  # Не может быть меньше 5 минут
-
-
-# Создаем колонку с ответами (то, что модель будет предсказывать)
-df['delivery_time_minutes'] = df.apply(calculate_target_time, axis=1)
-
-print(f"Датасет готов: {data_size} строк.")
-print(df.head(3))
-
-# --- 2. Обучение модели ---
-print("\nНачинаем обучение CatBoost...")
-
-X = df[['distance_km', 'traffic_level', 'courier_type']]
-y = df['delivery_time_minutes']
-
-# Указываем CatBoost, что 'courier_type' - это текст (категория)
-cat_features = ['courier_type']
-
-model = CatBoostRegressor(
-    iterations=500,  # Количество деревьев
-    learning_rate=0.1,  # Скорость обучения
-    depth=6,  # Глубина дерева
-    loss_function='RMSE',  # Метрика ошибки
-    verbose=100  # Выводить отчет каждые 100 итераций
+df['distance_km'] = haversine_distance(
+    df['Restaurant_latitude'], df['Restaurant_longitude'],
+    df['Delivery_location_latitude'], df['Delivery_location_longitude']
 )
 
-model.fit(X, y, cat_features=cat_features)
+# Б. очистка целевой переменной (остаётся только число)
+df['delivery_time'] = df['Time_taken(min)'].astype(str).str.replace(r'[^\d.]', '', regex=True)
+df['delivery_time'] = pd.to_numeric(df['delivery_time'], errors='coerce')
 
-print("\nОбучение завершено.")
+# В. очистка категориальных полей
+df['weather'] = df['Weatherconditions'].astype(str).str.replace('conditions ', '', case=False).str.strip()
+df['weather'] = df['weather'].replace('NaN', 'Sunny')
 
-# --- 3. Сохранение модели ---
-# Определяем путь: сохраним в ту же папку, где лежит скрипт, или в корень
-# Давай сохраним прямо в корень проекта, чтобы API легко её нашел
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Если скрипт в eta_project/ml, то project_root будет eta_project
+df['traffic_level'] = df['Road_traffic_density'].astype(str).str.strip()
+df['traffic_level'] = df['traffic_level'].replace('NaN', 'Low')
+traffic_map = {'Low': 1, 'Medium': 2, 'High': 3, 'Jam': 4}
+df['traffic_level_int'] = df['traffic_level'].map(traffic_map).fillna(2).astype(int)
 
-model_path = os.path.join(project_root, "delivery_model.cbm")
+df['courier_type'] = df['Type_of_vehicle'].astype(str).str.strip()
+
+# Г. извлекаем час
+def extract_hour(time_str):
+    try:
+        if pd.isna(time_str): return 12
+        parts = str(time_str).split(':')
+        if len(parts) >= 1:
+            return int(parts[0])
+        return 12
+    except:
+        return 12
+
+df['hour_of_day'] = df['Time_Orderd'].apply(extract_hour)
+df['hour_of_day'] = df['hour_of_day'].clip(0, 23)
+
+# 4. фильтрация мусора
+df = df[(df['distance_km'] > 0.1) & (df['distance_km'] < 100)]
+df = df.dropna(subset=['delivery_time'])
+
+print(f"Размер после очистки: {df.shape}")
+
+# 5. подготовка к обучению
+features = ['distance_km', 'traffic_level_int', 'weather', 'courier_type', 'hour_of_day']
+target = 'delivery_time'
+
+X = df[features]
+y = df[target]
+
+print("\nПример данных для обучения:")
+print(X.head())
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# 6. обучение
+print("\nОбучение CatBoost на реальных данных...")
+
+# текстовые признаки
+cat_features = ['weather', 'courier_type']
+
+model = CatBoostRegressor(
+    iterations=1000,
+    learning_rate=0.05,
+    depth=6,
+    loss_function='RMSE',
+    verbose=100
+)
+
+model.fit(X_train, y_train, cat_features=cat_features)
+
+# 7. оценка
+preds = model.predict(X_test)
+mae = mean_absolute_error(y_test, preds)
+r2 = r2_score(y_test, preds)
+
+print(f"\nРезультаты:")
+print(f"MAE: {mae:.2f} мин")
+print(f"R2: {r2:.3f}")
+
+# 8. сохранение
+model_path = os.path.join(base_dir, "delivery_model.cbm")
 model.save_model(model_path)
-
-print(f"✅ Модель сохранена в файл: {model_path}")
-
-# --- 4. Тестовый прогноз ---
-print("\nПроверка модели:")
-test_case = [5.5, 8, 'car']  # 5.5 км, 8 баллов, авто
-pred = model.predict(test_case)
-print(f"Вход: {test_case} -> Прогноз: {pred:.2f} мин.")
+print(f"Модель сохранена в {model_path}")
